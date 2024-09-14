@@ -1,80 +1,87 @@
 import pandas as pd
-from sqlalchemy import create_engine
 import mysql.connector
-import tkinter as tk
-from tkinter import filedialog
+from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, messagebox
+from file_utils import upload_file, file_exists
+from db_utils import create_database_if_not_exists, create_table_if_not_exists, insert_data
 
-# MySQL Server Configuration
-DB_USERNAME = 'root'   # Replace with your MySQL username
-DB_PASSWORD = 'Kaustubh@1234'   # Replace with your MySQL password
-DB_HOST = 'localhost'           # Replace with your MySQL host, usually localhost
-DB_PORT = 3306                  # Ensure this is an integer
-DB_NAME = 'New'  # Replace with your desired database name
-
-
-def create_database_if_not_exists():
-    """Creates the MySQL database if it does not exist."""
-    try:
-        # Connect to MySQL server without specifying the database
-        conn = mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USERNAME,
-            password=DB_PASSWORD,
-            port=DB_PORT
-        )
-        cursor = conn.cursor()
-        # Create the database if it doesn't exist
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
-        print(f"Database '{DB_NAME}' created or already exists.")
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-
-def select_file():
-    """Opens a file dialog to select a CSV file."""
-    root = tk.Tk()
-    root.withdraw()  # Hide the main Tkinter window
-    file_path = filedialog.askopenfilename(
-        title="Select a CSV file",
-        filetypes=[("CSV files", "*.csv")]
-    )
-    return file_path
-
-def upload_csv_to_db(file_path):
-    """Reads a CSV file and uploads its content to a MySQL database."""
-    # Check if the file is a CSV
-    if not file_path.endswith('.csv'):
-        print("Only CSV files are allowed.")
+# Function to create the database from CSV
+def create_database_from_csv(host, user, password, db_name, table_name, csv_file):
+    if not file_exists(csv_file):
+        messagebox.showerror("Error", "The selected file does not exist.")
         return
 
     try:
-        # Read the CSV file into a Pandas DataFrame
-        df = pd.read_csv(file_path)
-        
-        # Configure the MySQL database connection using SQLAlchemy
-        engine = create_engine(
-            f'mysql+mysqlconnector://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}'
+        df = pd.read_csv(csv_file)
+
+        conn = mysql.connector.connect(
+            host=host,
+            user=user,
+            password=password
         )
-        
-        # Create a table name based on the CSV file name (without extension)
-        table_name = file_path.split("/")[-1].rsplit('.', 1)[0]  # Adjust based on OS path format
-        
-        # Upload the DataFrame to the MySQL database
-        df.to_sql(table_name, engine, index=False, if_exists='replace')
-        
-        print(f"File '{file_path}' uploaded and saved to the database as table '{table_name}'.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+        cursor = conn.cursor()
 
-def main():
-    # Create the database if it doesn't exist
-    create_database_if_not_exists()
-    
-    print("Please select a CSV file to upload:")
-    file_path = select_file()
-    if file_path:
-        upload_csv_to_db(file_path)
+        create_database_if_not_exists(cursor, db_name)
+        cursor.execute(f"USE `{db_name}`")
+        create_table_if_not_exists(cursor, table_name, df)
+        insert_data(cursor, table_name, df)
 
-if __name__ == '__main__':
-    main()
+        conn.commit()
+        messagebox.showinfo("Success", "Data inserted successfully!")
+    except mysql.connector.Error as err:
+        messagebox.showerror("Error", f"Error: {err}")
+    finally:
+        if cursor and conn:
+            cursor.close()
+            conn.close()
+
+# Function to launch the file dialog
+def choose_file():
+    file_path.set(upload_file())
+
+# Function to handle button click and pass inputs to `create_database_from_csv`
+def on_submit():
+    host = host_var.get()
+    user = user_var.get()
+    password = password_var.get()
+    db_name = db_name_var.get()
+    table_name = table_name_var.get()
+    csv_file = file_path.get()
+
+    if host and user and password and db_name and table_name and csv_file:
+        create_database_from_csv(host, user, password, db_name, table_name, csv_file)
+    else:
+        messagebox.showerror("Error", "Please fill in all the fields and select a CSV file.")
+
+# Main Tkinter interface
+root = Tk()
+root.title("Database Creator")
+
+host_var = StringVar()
+user_var = StringVar()
+password_var = StringVar()
+db_name_var = StringVar()
+table_name_var = StringVar()
+file_path = StringVar()
+
+Label(root, text="MySQL Host").grid(row=0, column=0)
+Entry(root, textvariable=host_var).grid(row=0, column=1)
+
+Label(root, text="MySQL User").grid(row=1, column=0)
+Entry(root, textvariable=user_var).grid(row=1, column=1)
+
+Label(root, text="MySQL Password").grid(row=2, column=0)
+Entry(root, textvariable=password_var, show="*").grid(row=2, column=1)
+
+Label(root, text="Database Name").grid(row=3, column=0)
+Entry(root, textvariable=db_name_var).grid(row=3, column=1)
+
+Label(root, text="Table Name").grid(row=4, column=0)
+Entry(root, textvariable=table_name_var).grid(row=4, column=1)
+
+Label(root, text="CSV File").grid(row=5, column=0)
+Entry(root, textvariable=file_path).grid(row=5, column=1)
+Button(root, text="Choose File", command=choose_file).grid(row=5, column=2)
+
+Button(root, text="Submit", command=on_submit).grid(row=6, column=1)
+
+root.mainloop()
